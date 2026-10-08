@@ -28,9 +28,9 @@ Exemplo:
 
 | Origem(Número) | Hostname/IP | Portas (Opcional) | Protocolos (Opcional) | Descrição (Opcional) |
 |---|---|---|---|---|
-| 1 | `10.22.230.2` | 443 | `https` | Aplicação principal |
-| 1 | `10.22.230.2` |  | `traceroute` | Rota até a aplicação |
-| 1 | `10.22.230.3` |  | `tracepath` | Caminho e MTU |
+| 1 | `10.1.1.2` | 443 | `https` | Aplicação principal |
+| 1 | `10.1.1.2` |  | `traceroute` | Rota até a aplicação |
+| 1 | `10.1.1.3` |  | `tracepath` | Caminho e MTU |
 
 `traceroute` e `tracepath` não precisam de porta.
 
@@ -142,15 +142,15 @@ Exemplo resumido:
 ================================================================================
 TRACE 1
 Status: OK
-Origem host: 10.128.10.20
-Destino: 10.22.230.2
+Origem host: 10.1.1.1
+Destino: 10.1.1.2
 Protocolo: traceroute
 Descricao: Rota até a aplicação
 Tempo total: 15234 ms
 --------------------------------------------------------------------------------
-traceroute to 10.22.230.2 (10.22.230.2), 20 hops max, 60 byte packets
- 1  10.128.71.254  13.054 ms  14.026 ms  12.884 ms
+traceroute to 10.1.1.2 (10.1.1.2), 20 hops max, 60 byte packets
+ 1  10.2.3.4  13.054 ms  14.026 ms  12.884 ms
  2  * * *
- 3  10.128.254.2  7.357 ms  4.538 ms  4.638 ms
+ 3  10.4.3.2  7.357 ms  4.538 ms  4.638 ms
 ================================================================================
 ```
