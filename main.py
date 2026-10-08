@@ -58,7 +58,11 @@ except ImportError:
 
 DEFAULT_TEMPLATE = "Template_IP.xlsx"
 RESULTS_FILE = "connectivity_results.csv"
+TRACE_DUMP_FILE = "dump_traces.txt"
 TIMEOUT_SECONDS = 5
+TRACE_TIMEOUT_SECONDS = 180
+TRACE_MAX_HOPS = 20
+TRACE_MAX_CONSECUTIVE_NO_REPLY = 5
 
 DEFAULT_PORTS = {
     "ftp": 21,
@@ -98,6 +102,9 @@ PROTOCOL_ALIASES = {
     "smb": "smb",
     "ldaps": "ldaps",
     "rdp": "rdp",
+    "traceroute": "traceroute",
+    "tracert": "traceroute",
+    "tracepath": "tracepath",
 }
 
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -545,6 +552,104 @@ def test_tftp(host, port=None, timeout=TIMEOUT_SECONDS):
     return test_udp(host, port, timeout)
 
 
+def run_trace_command(command, timeout=TIMEOUT_SECONDS):
+    """Executa traceroute/tracepath localmente e devolve a rota encontrada."""
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=TRACE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False, f"Comando nao encontrado: {command[0]}"
+    except subprocess.TimeoutExpired as exc:
+        partial_parts = []
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode(errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
+        if stdout.strip():
+            partial_parts.append(stdout.strip())
+        if stderr.strip():
+            partial_parts.append(stderr.strip())
+        detail = "\n".join(partial_parts)
+        timeout_message = (
+            f"[AVISO] Trace interrompido apos {TRACE_TIMEOUT_SECONDS}s "
+            "pelo limite de seguranca. A saida parcial foi preservada."
+        )
+        if detail:
+            return False, f"{detail}\n{timeout_message}"
+        return False, timeout_message
+
+    output_parts = []
+    if completed.stdout and completed.stdout.strip():
+        output_parts.append(completed.stdout.strip())
+    if completed.stderr and completed.stderr.strip():
+        output_parts.append(completed.stderr.strip())
+    detail = "\n".join(output_parts) or "sem saida"
+    return completed.returncode == 0, detail
+
+
+def test_traceroute(host, _port=None, timeout=TIMEOUT_SECONDS):
+    if os.name == "nt":
+        command = [
+            "tracert",
+            "-h",
+            str(TRACE_MAX_HOPS),
+            "-w",
+            str(timeout * 1000),
+            host,
+        ]
+    else:
+        quoted_host = shlex.quote(host)
+        awk_program = (
+            r'{ current=$1; gsub(/[?:]/, "", current); '
+            r'if ($0 ~ /^[[:space:]]*[0-9]+[[:space:]]+\*[[:space:]]+\*[[:space:]]+\*/) no_reply++; '
+            r'else if (current ~ /^[0-9]+$/) no_reply=0; '
+            r'print; fflush(); '
+            f'if (current ~ /^[0-9]+$/ && '
+            f'(current >= {TRACE_MAX_HOPS} || '
+            f'no_reply >= {TRACE_MAX_CONSECUTIVE_NO_REPLY})) exit}}'
+        )
+        command = [
+            "bash",
+            "-lc",
+            f"set -o pipefail; traceroute -m {TRACE_MAX_HOPS} -w {timeout} "
+            f"{quoted_host} | awk {shlex.quote(awk_program)}",
+        ]
+    return run_trace_command(command, timeout)
+
+
+def tracepath_limited_command(host):
+    """Limita o tracepath a 20 saltos ou 5 saltos seguidos sem resposta."""
+    quoted_host = shlex.quote(host)
+    awk_program = (
+        r'{ current=$1; gsub(/[?:]/, "", current); '
+        r'line=tolower($0); '
+        r'if (line ~ /no reply/) no_reply++; '
+        r'else if (current ~ /^[0-9]+$/) no_reply=0; '
+        r'print; fflush(); '
+        f'if (current ~ /^[0-9]+$/ && '
+        f'(current >= {TRACE_MAX_HOPS} || '
+        f'no_reply >= {TRACE_MAX_CONSECUTIVE_NO_REPLY})) exit}}'
+    )
+    return [
+        "bash",
+        "-lc",
+        f"set -o pipefail; tracepath {quoted_host} | awk {shlex.quote(awk_program)}",
+    ]
+
+
+def test_tracepath(host, _port=None, timeout=TIMEOUT_SECONDS):
+    if os.name == "nt":
+        return False, "tracepath nao esta disponivel nativamente no Windows; use traceroute/tracert"
+    return run_trace_command(tracepath_limited_command(host), timeout)
+
+
 def quote(value):
     return shlex.quote(str(value))
 
@@ -623,6 +728,30 @@ def remote_test_command(target):
         port = port or DEFAULT_PORTS["tftp"]
         return f"nc -uz -w {timeout} {host} {port}"
 
+    if target.protocol in ("traceroute", "tracepath"):
+        if target.protocol == "traceroute":
+            trace_command = (
+                f"traceroute -m {TRACE_MAX_HOPS} -w {timeout} {host}"
+            )
+            no_reply_pattern = r"^[[:space:]]*[0-9]+[[:space:]]+\*[[:space:]]+\*[[:space:]]+\*"
+        else:
+            trace_command = f"tracepath {host}"
+            no_reply_pattern = r"no reply"
+
+        awk_program = (
+            r'{ current=$1; gsub(/[?:]/, "", current); '
+            r'line=tolower($0); '
+            f'if (line ~ /{no_reply_pattern}/) no_reply++; '
+            r'else if (current ~ /^[0-9]+$/) no_reply=0; '
+            r'print; fflush(); '
+            f'if (current ~ /^[0-9]+$/ && '
+            f'(current >= {TRACE_MAX_HOPS} || '
+            f'no_reply >= {TRACE_MAX_CONSECUTIVE_NO_REPLY})) exit}}'
+        )
+        return (
+            f"set -o pipefail; timeout --signal=TERM {TRACE_TIMEOUT_SECONDS} "
+            f"{trace_command} | awk {quote(awk_program)}"
+        )
     if port is not None:
         return f"nc -z -w {timeout} {host} {port}"
     return f"ping -c 2 -W {timeout} {host}"
@@ -651,11 +780,32 @@ def run_remote_ssh_test(target, origin):
             allow_agent=False,
         )
         command = remote_test_command(target)
-        _, stdout, stderr = client.exec_command(command, timeout=TIMEOUT_SECONDS + 3)
-        exit_code = stdout.channel.recv_exit_status()
+        command_timeout = (
+            TRACE_TIMEOUT_SECONDS + 10
+            if target.protocol in ("traceroute", "tracepath")
+            else max(TIMEOUT_SECONDS * 6, 30) + 3
+        )
+        _, stdout, stderr = client.exec_command(
+            command,
+            timeout=command_timeout,
+        )
         output = stdout.read().decode(errors="replace").strip()
         error = stderr.read().decode(errors="replace").strip()
-        detail = output or error or f"comando remoto finalizou com codigo {exit_code}"
+        exit_code = stdout.channel.recv_exit_status()
+        detail_parts = []
+        if output:
+            detail_parts.append(output)
+        if error:
+            detail_parts.append(error)
+        detail = "\n".join(detail_parts)
+        if exit_code == 124:
+            timeout_message = (
+                f"[AVISO] Trace interrompido apos {TRACE_TIMEOUT_SECONDS}s "
+                "pelo limite de seguranca. A saida parcial foi preservada."
+            )
+            detail = f"{detail}\n{timeout_message}" if detail else timeout_message
+        elif not detail:
+            detail = f"comando remoto finalizou com codigo {exit_code}"
         return exit_code == 0, detail
     finally:
         client.close()
@@ -676,6 +826,8 @@ TESTERS = {
     "ntp": test_ntp,
     "snmp": test_snmp,
     "tftp": test_tftp,
+    "traceroute": test_traceroute,
+    "tracepath": test_tracepath,
 }
 
 
@@ -714,9 +866,50 @@ def print_result(result):
     print(f"    {result.detail}")
 
 
+def save_trace_dump(results, path=TRACE_DUMP_FILE):
+    """Grava a saida integral de traceroute/tracepath em um arquivo texto separado."""
+    trace_results = [
+        result
+        for result in results
+        if result.target.protocol in ("traceroute", "tracepath")
+    ]
+    if not trace_results:
+        return False
+
+    with open(path, "w", encoding="utf-8", newline="") as file:
+        for index, result in enumerate(trace_results, start=1):
+            target = result.target
+            origin_host = result.origin.host if result.origin else "local"
+
+            if index > 1:
+                file.write("\n")
+            file.write("=" * 80 + "\n")
+            file.write(f"TRACE {index}\n")
+            file.write(f"Status: {result.status}\n")
+            file.write(f"Origem host: {origin_host}\n")
+            file.write(f"Destino: {target.host}\n")
+            file.write(f"Protocolo: {target.protocol}\n")
+            file.write(f"Descricao: {target.description or '-'}\n")
+            file.write(f"Tempo total: {result.elapsed_ms} ms\n")
+            file.write("-" * 80 + "\n")
+
+            # Sem limpeza, resumo ou corte: grava exatamente todo o detalhe capturado.
+            detail = result.detail if result.detail is not None else ""
+            file.write(detail)
+            if not detail.endswith("\n"):
+                file.write("\n")
+            file.write("=" * 80 + "\n")
+
+    return True
+
+
 def save_results(results, path=RESULTS_FILE):
     with open(path, "w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
+        writer = csv.writer(
+            file,
+            quoting=csv.QUOTE_MINIMAL,
+            lineterminator="\n",
+        )
         writer.writerow(
             [
                 "status",
@@ -732,6 +925,8 @@ def save_results(results, path=RESULTS_FILE):
             ]
         )
         for result in results:
+            if result.target.protocol in ("traceroute", "tracepath"):
+                continue
             writer.writerow(
                 [
                     result.status,
@@ -785,10 +980,30 @@ def loop_reader(path):
         print_result(result)
         results.append(result)
 
-    save_results(results)
+    regular_results = [
+        result
+        for result in results
+        if result.target.protocol not in ("traceroute", "tracepath")
+    ]
+    trace_results = [
+        result
+        for result in results
+        if result.target.protocol in ("traceroute", "tracepath")
+    ]
+
+    if regular_results:
+        save_results(results)
+    elif os.path.exists(RESULTS_FILE):
+        os.remove(RESULTS_FILE)
+
+    trace_dump_created = save_trace_dump(results)
+
     ok_count = sum(1 for result in results if result.ok)
     print(f"\nResumo: {ok_count}/{len(results)} OK.")
-    print(f"Resultado salvo em: {RESULTS_FILE}")
+    if regular_results:
+        print(f"Testes de conectividade salvos em: {RESULTS_FILE}")
+    if trace_dump_created:
+        print(f"Saidas completas de trace salvas em: {TRACE_DUMP_FILE}")
     return results
 
 
