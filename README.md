@@ -1,52 +1,81 @@
 # NetCheck-XLS
 
-Validador de conectividade baseado em uma planilha Excel. O script le o arquivo
-`Template_IP.xlsx`, monta uma lista de destinos e executa testes de rede como
-ICMP, TCP, UDP, HTTP, HTTPS, SSH, Telnet, FTP, DNS, NTP, SNMP e TFTP.
+Ferramenta em Python para validar conectividade a partir de uma planilha Excel. Os testes podem ser executados localmente ou em hosts remotos via SSH.
 
-## Como funciona
+## Funcionalidades
 
-O arquivo Excel possui duas areas principais:
+- Leitura de destinos e origens a partir de uma planilha `.xlsx`.
+- Execução local ou remota via SSH.
+- Testes ICMP, TCP, UDP, HTTP, HTTPS, DNS, NTP, SNMP, TFTP, FTP, SSH, Telnet, SMTP, POP3, IMAP, SMB, LDAPS e RDP.
+- Rastreamento de rota com `traceroute`, `tracert` e `tracepath`.
+- Resultados comuns em CSV e traces completos em arquivo de texto separado.
+
+## Formato da planilha
+
+O script utiliza duas tabelas: **Destinos** e **Origens**.
 
 ### Destinos
 
-Tabela com os testes que devem ser executados:
+| Campo | Descrição |
+|---|---|
+| `Origem(Número)` | Identificador da origem remota. Se ficar vazio, o teste será local. |
+| `Hostname/IP` | Endereço IP ou hostname de destino. |
+| `Portas (Opcional)` | Porta do serviço. Pode ficar vazia quando houver uma porta padrão. |
+| `Protocolos (Opcional)` | Protocolo do teste. Se protocolo e porta ficarem vazios, será usado ICMP. |
+| `Descrição (Opcional)` | Identificação livre do teste. |
 
-| Coluna | Campo | Descricao |
-| --- | --- | --- |
-| B | Origem(Número) | Numero da origem que deve executar o teste. Se ficar vazio, o teste roda localmente. |
-| C | Hostname/IP | Destino que sera testado. |
-| D | Portas (Opcional) | Porta de destino. Se vazia, o script usa a porta padrao do protocolo. |
-| E | Protocolos (Opcional) | Protocolo do teste. Se protocolo e porta ficarem vazios, o teste sera ICMP. |
-| F | Descrição (Opcional) | Texto livre para identificar o teste. |
+Exemplo:
+
+| Origem(Número) | Hostname/IP | Portas (Opcional) | Protocolos (Opcional) | Descrição (Opcional) |
+|---|---|---|---|---|
+| 1 | `10.22.230.2` | 443 | `https` | Aplicação principal |
+| 1 | `10.22.230.2` |  | `traceroute` | Rota até a aplicação |
+| 1 | `10.22.230.3` |  | `tracepath` | Caminho e MTU |
+
+`traceroute` e `tracepath` não precisam de porta.
 
 ### Origens
 
-Tabela com os hosts de origem usados para testes remotos:
+| Campo | Descrição |
+|---|---|
+| `Número origem` | Identificador usado em `Origem(Número)`. |
+| `Hostname/IP` | IP ou hostname da origem remota. |
+| `Porta (Opcional)` | Porta SSH. O padrão é `22`. |
+| `Usuario` | Usuário SSH. |
+| `Senha` | Senha SSH. |
 
-| Coluna | Campo | Descricao |
-| --- | --- | --- |
-| H | Número origem | Identificador usado na coluna `Origem(Número)`. |
-| I | Hostname/IP | IP ou hostname da maquina de origem. |
-| J | Porta (Opcional) | Porta SSH da origem. Padrao: `22`. |
-| K | Usuario | Usuario SSH. |
-| L | Senha | Senha SSH. |
+Quando uma origem é informada, o script acessa o host por SSH e executa o teste a partir dele.
 
-Quando um destino possui `Origem(Número)`, o script acessa essa origem via SSH e
-executa o teste a partir dela. Quando a origem esta vazia, o teste e executado na
-maquina local.
+## Protocolos de trace
 
-## Portas padrao
+Na coluna `Protocolos (Opcional)`, use:
 
-Quando o protocolo e informado mas a porta fica vazia, o script usa:
+- `traceroute`
+- `tracert`, tratado como alias de `traceroute`
+- `tracepath`
+
+Os traces seguem estas regras:
+
+- Máximo de **20 hops** por teste.
+- Encerramento antecipado após **5 hops consecutivos sem resposta**.
+- Uma resposta válida reinicia a contagem de hops sem resposta.
+- Timeout de segurança de **180 segundos por teste**.
+- A saída obtida é preservada mesmo quando o timeout é atingido.
+
+No Linux, o script utiliza `traceroute` ou `tracepath`. No Windows, `traceroute` utiliza o comando nativo `tracert`; `tracepath` não está disponível nativamente.
+
+## Portas padrão
+
+Quando a porta fica vazia, o script utiliza a porta padrão do protocolo, quando aplicável:
 
 | Protocolo | Porta |
-| --- | ---: |
+|---|---:|
 | FTP | 21 |
 | SSH | 22 |
 | Telnet | 23 |
 | SMTP | 25 |
 | DNS | 53 |
+| TFTP | 69 |
 | HTTP | 80 |
 | POP3 | 110 |
 | NTP | 123 |
@@ -55,33 +84,35 @@ Quando o protocolo e informado mas a porta fica vazia, o script usa:
 | HTTPS | 443 |
 | SMB | 445 |
 | LDAPS | 636 |
-| TFTP | 69 |
 | RDP | 3389 |
 
 ## Requisitos
 
-Python 3.10 ou superior.
+- Python 3.10 ou superior.
+- Planilha `.xlsx` no formato esperado.
+- Acesso de rede aos destinos.
+- Acesso SSH às origens remotas, quando utilizadas.
 
-Dependencia obrigatoria para executar testes a partir de outra origem:
+Instale o Paramiko para execução remota:
 
 ```bash
 python -m pip install paramiko
 ```
 
-Dependencias opcionais para testes mais especificos:
+Dependências opcionais:
 
 ```bash
 python -m pip install dnspython ntplib tftpy pysnmp pythonping
 ```
 
-Sem essas bibliotecas opcionais, o script tenta usar recursos basicos do sistema
-quando possivel.
-
-Nos hosts de origem, instale as ferramentas usadas pelos comandos remotos:
+Em Debian ou Ubuntu, instale as ferramentas de sistema:
 
 ```bash
-sudo apt install iputils-ping netcat-openbsd curl wget dnsutils ntpdate snmp
+sudo apt update
+sudo apt install iputils-ping iputils-tracepath traceroute netcat-openbsd curl wget dnsutils ntpdate snmp
 ```
+
+Os hosts Linux usados para traces também precisam de `bash`, `awk` e `timeout`, normalmente incluído no pacote `coreutils`.
 
 ## Uso
 
@@ -91,28 +122,35 @@ Execute:
 python main.py
 ```
 
-No menu, escolha:
+No menu, escolha iniciar o script e informe se deseja usar `Template_IP.xlsx` no diretório atual ou selecionar outro arquivo.
+
+## Arquivos de resultado
+
+### `connectivity_results.csv`
+
+Contém os resultados dos testes comuns, incluindo status, origem, destino, porta, protocolo, tempo de execução e detalhes.
+
+Resultados de `traceroute`, `tracert` e `tracepath` não são gravados nesse arquivo.
+
+### `dump_traces.txt`
+
+Contém a saída completa dos traces, separada em blocos identificados por origem, destino, protocolo, descrição, status e tempo total.
+
+Exemplo resumido:
 
 ```text
-[1] Iniciar o script
-[0] Fechar o programa
+================================================================================
+TRACE 1
+Status: OK
+Origem host: 10.128.10.20
+Destino: 10.22.230.2
+Protocolo: traceroute
+Descricao: Rota até a aplicação
+Tempo total: 15234 ms
+--------------------------------------------------------------------------------
+traceroute to 10.22.230.2 (10.22.230.2), 20 hops max, 60 byte packets
+ 1  10.128.71.254  13.054 ms  14.026 ms  12.884 ms
+ 2  * * *
+ 3  10.128.254.2  7.357 ms  4.538 ms  4.638 ms
+================================================================================
 ```
-
-Depois selecione se deseja usar `Template_IP.xlsx` no diretorio atual ou informar
-outro caminho manualmente.
-
-## Resultado
-
-Ao final, o script salva um CSV com os resultados:
-
-```text
-connectivity_results.csv
-```
-
-O arquivo contem status, linha da planilha, origem, destino, porta, protocolo,
-tempo de execucao e detalhe do teste.
-
-## Observacao de seguranca
-
-Evite compartilhar o template contendo usuario e senha de origens. Se possivel, use credenciais
-temporarias, variaveis de ambiente ou outro mecanismo seguro para producao.
