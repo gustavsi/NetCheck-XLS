@@ -52,18 +52,32 @@ python3 -B -m unittest -v test_netcheck.py
 
 ## Estrutura da Planilha (`Template_IP.xlsx`)
 
-* **Destinos (Colunas B–F, linha 6)**:
-  * **B (`Origem(Número)`)**: ID da origem (vazio = execução local).
-  * **C (`Hostname/IP`)**: IP (IPv4/IPv6) ou hostname de destino.
-  * **D (`Portas`)**: Ex.: `443`, `443/tcp`, `5060/udp`, `22, 443`.
-  * **E (`Protocolos`)**: `traceroute`, `tracert`, `tracepath`, `traceroute-tcp`, `traceroute-udp`, `traceroute-icmp`, `icmp`, `tcp`, `udp`, `ssh`.
-  * **F (`Descrição`)**: Contexto da regra/integração.
-* **Origens (Colunas H–M, linha 7)**:
-  * **H (`Número origem`)**: ID único da VM.
-  * **I (`Hostname/IP`)**: IP/hostname de **gerência** (usado apenas para conectar no SSH).
-  * **J (`IP Real`)**: IP da interface produtiva usado em `traceroute -s <IP Real>` e evidenciado para abertura de firewall.
-  * **K (`Porta`)**: Porta SSH da origem (padrão `22`).
-  * **L (`Username`)** / **M (`Password`)**: Credenciais SSH (suporta `env:VAR`, `keyring:servico/conta` ou vazio para chave SSH/`ssh-agent`).
+A primeira aba da planilha é dividida em duas tabelas lado a lado, separadas pela **Coluna G** (vazia). As linhas **2 a 5** (`B2:F5` e `H2:M5`) são reservadas para os blocos visuais de título/instruções e podem ser estilizadas livremente.
+
+### 1. Tabela de Destinos (Colunas `B` a `F`)
+* **Linha 6 (`B6:F6`)**: Cabeçalho obrigatório da tabela de destinos.
+* **Linha 7 em diante (`B7:F...`)**: Linhas de testes a serem executados.
+
+| Célula do Cabeçalho | Nome Exato da Coluna | Obrigatório | Descrição e Valores Aceitos |
+|---|---|---|---|
+| **`B6`** | `Origem(Número)` | Não | ID da origem cadastrado em `H8+`. Se deixado **vazio**, o teste roda a partir da máquina local. |
+| **`C6`** | `Hostname/IP` | **Sim** | Endereço IP (IPv4/IPv6) ou hostname de destino. |
+| **`D6`** | `Portas (Opcional)` | Condicional | Porta(s) de destino: `443`, `443/tcp`, `5060/udp`, `22, 443`. Obrigatória para protocolos `tcp`/`udp`. Em `traceroute`, define o probe (`-T -p` para TCP ou `-U -p` para UDP) e aciona o teste composto pós-trace na porta. |
+| **`E6`** | `Protocolos (Opcional)` | Não | `traceroute`, `tracert`, `tracepath`, `traceroute-tcp`, `traceroute-udp`, `traceroute-icmp`, `icmp`, `tcp`, `udp`, `ssh`. (Padrão: `tcp` se houver porta, ou `icmp` se sem porta). |
+| **`F6`** | `Descrição (Opcional)` | Não | Contexto operacional da regra/integração (ex.: `"Sinalização SIP SBC"`). |
+
+### 2. Tabela de Origens (Colunas `H` a `M`)
+* **Linha 7 (`H7:M7`)**: Cabeçalho obrigatório da tabela de origens.
+* **Linha 8 em diante (`H8:M...`)**: Cadastro das VMs remotas que executarão os testes via SSH.
+
+| Célula do Cabeçalho | Nome Exato da Coluna | Obrigatório | Descrição e Valores Aceitos |
+|---|---|---|---|
+| **`H7`** | `Número origem` | **Sim** | Identificador único da origem (ex.: `1`, `2`, `3`), referenciado na coluna `B` dos destinos. |
+| **`I7`** | `Hostname/IP` | **Sim** | IP ou hostname de **gerência/acesso** usado exclusivamente para abrir a conexão SSH. |
+| **`J7`** | `IP Real (Opcional)` | Não | IP da interface produtiva (sinalização, bilhetagem, mídia) usado em `traceroute -s <IP Real>` e exibido nos relatórios como origem real da regra de firewall. |
+| **`K7`** | `Porta (Opcional)` | Não | Porta SSH de gerência da VM de origem (padrão: `22`). |
+| **`L7`** | `Username` | **Sim** | Usuário SSH na VM de origem. |
+| **`M7`** | `Password` | Não | Segredo SSH: recomendado `env:NOME_DA_VAR` ou `keyring:servico/conta`, senha literal, ou vazio para usar chave SSH local / `ssh-agent`. |
 
 ---
 
