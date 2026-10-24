@@ -2351,11 +2351,17 @@ def stream_process(argv, env=None, stdin_data=None, new_session=False, status_ho
     lines = queue.Queue()
 
     def reader():
-        for line in process.stdout:
-            lines.put(line)
-        lines.put("")
+        try:
+            if process.stdout is not None:
+                for line in process.stdout:
+                    lines.put(line)
+        except (ValueError, OSError):
+            pass
+        finally:
+            lines.put("")
 
-    threading.Thread(target=reader, daemon=True).start()
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
     try:
         while True:
             try:
@@ -2376,6 +2382,7 @@ def stream_process(argv, env=None, stdin_data=None, new_session=False, status_ho
             else:
                 process.kill()
         rc = process.wait()
+        reader_thread.join(timeout=1.0)
         if process.stdout is not None:
             try:
                 process.stdout.close()
