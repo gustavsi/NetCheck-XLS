@@ -2,6 +2,21 @@
 
 Validador automatizado de conectividade, rotas (`traceroute`, `tracert`, `tracepath`) e regras de firewall a partir de planilhas Excel (`Template_IP.xlsx`), executando testes locais ou remotos via SSH.
 
+## Requisitos (Ubuntu / Debian)
+
+```bash
+# Pacotes de sistema (execução local e nas VMs de origem):
+sudo apt update && sudo apt install -y \
+  python3 python3-pip traceroute iputils-tracepath iputils-ping \
+  netcat-openbsd openssh-client sshpass libcap2-bin
+
+# (Opcional) Bibliotecas Python para SSH nativo e cofre de senhas:
+pip3 install paramiko keyring
+
+# (Recomendado nas origens) Permitir traceroute TCP/ICMP sem root/sudo:
+sudo setcap cap_net_raw+ep "$(readlink -f $(command -v traceroute))"
+```
+
 ## Uso Rápido (CLI)
 
 ```bash
